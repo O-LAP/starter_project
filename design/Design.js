@@ -130,7 +130,7 @@ Design.init = async function() {
  * 									- cuts = number of cuts
  * 									Slices are parallel to the axes in their respective directions.
  */
-Design.updateGeom = async function(group, params, sliceManager) {
+Design.updateGeom = async function(group, sliceManager) {
 	var geometry = new THREE.BoxGeometry( 200, Design.inputState.height, Design.inputState.width * ((Design.inputState.doubleWidth) ? 2 : 1) );
 	var material = getMaterial(Design.inputState.colour, Design.inputState.finish);
 	var cube = new THREE.Mesh( geometry, material );
