@@ -45,6 +45,7 @@ var FIN_GLOSS = "Glossy";
  *	-"bool"		Input for yes/no values. Presented as a checkbox.
  * 	-"select"	Input for selecting values from a list. Presented as a
  				drop-down list.
+ *	-"text"		Input for text values. Presented as a text input field.
  *
  * IMPORTANT
  * Register the param with its code-label in the 'params' array.
@@ -109,17 +110,7 @@ Design.inputState = {}
  * Called on design initialization; called before UI is updated to show params.
  * Use for initializing values.
  */
-Design.init = function() {
-}
-
-/**
- * Called when any parameter is updated.
- * @param {object} params 		Object containing key-value pairs with 
- * 								code-label as specified in "Design.inputs" as 
- *								key and their updated values as values. The same
- * 								values are available in "Design.inputState".
- */
-Design.onParamChange = function(params) {
+Design.init = async function() {
 }
 
 /**
@@ -129,8 +120,17 @@ Design.onParamChange = function(params) {
  *									this function is called and added again
  *									at the end. Called after parameters are 
  *									updated
+ * @sliceManager {SliceManager}		Object to convey slicing information.
+ * 									Use 'sliceManager.addSliceSet(sliceParams)' to pass slice information where
+ * 									sliceParams is an object with following properties.
+ *									{ uDir: true, start: -40, end: 40, cuts: 4 }
+ * 									- uDir = direction of slice 'true' is along X-axis, 'false' along Y-axis
+ * 									- start = start position
+ * 									- end = end position
+ * 									- cuts = number of cuts
+ * 									Slices are parallel to the axes in their respective directions.
  */
-Design.updateGeom = function(group, sliceManager) {
+Design.updateGeom = async function(group, params, sliceManager) {
 	var geometry = new THREE.BoxGeometry( 200, Design.inputState.height, Design.inputState.width * ((Design.inputState.doubleWidth) ? 2 : 1) );
 	var material = getMaterial(Design.inputState.colour, Design.inputState.finish);
 	var cube = new THREE.Mesh( geometry, material );

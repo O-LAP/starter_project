@@ -1,4 +1,11 @@
 
+async function wait(ms) {
+	console.log(`Waiting for ${ms} seconds...`);
+	return new Promise((resolve, reject) => setTimeout(() => resolve(), ms));1
+}
+
+//------------------------------------
+
 function hasMethod(objToChk, methodName) {
 	return objToChk && typeof objToChk[methodName] === "function";
 }
@@ -157,8 +164,10 @@ class SliceSet {
 			let s = this.slices[i];
 			s.cutBoundaryLines(geom);
 			s.cutGrooveLines(otherSliceSet);
-			// retObj.add(s.dispPlane);
-			// retObj.add(s.debugViz);
+			if(this.debug) {
+				retObj.add(s.dispPlane);
+				retObj.add(s.debugViz);
+			}
 			retObj.add(s.getSliceObject());
 		}
 
@@ -189,8 +198,8 @@ class SliceManager {
 		if(config.cuts === 'undefined' || typeof config.cuts !== 'number') {
 			console.log("Error with 'cuts' in slice-set config."); return;
 		}
-		if (config.uDir) this.sliceSetU = new SliceSet(config, true);
-		else this.sliceSetV = new SliceSet(config, true);
+		if (config.uDir) this.sliceSetU = new SliceSet(config);
+		else this.sliceSetV = new SliceSet(config);
 	}
 
 	getAllSlicesFromSet(geom) {
@@ -237,7 +246,7 @@ class OLAPFramework {
 			if(this.version != infoJSON.latest_version) {
 				console.log(`${infoJSON.latest_version} is available. Consider upgrading the framework.`);
 			}
-			console.log(infoJSON.message);
+			if(infoJSON.message != "") console.log(infoJSON.message);
 		}
 		catch(e) {
 			console.log("O-LAP update check failed.");
@@ -245,33 +254,38 @@ class OLAPFramework {
 	}
 
 	async downloadHumans() {
-		let url, model, objLoader;
+		let url;
+		let material = new THREE.MeshPhongMaterial({side: THREE.DoubleSide,
+													color: 0xBEBEBE,
+													transparent: true,
+													opacity: 0.3,
+													shininess: 0.1,
+													specular: 0x000000
+												  });
 		url = "https://raw.githubusercontent.com/O-LAP/home/master/olap/files/denace.obj";
-		model = await $.get(url);
-		objLoader = new THREE.OBJLoader();
-		objLoader.setPath(url);
-	    objLoader.load(model, function (object) {
-		    object.traverse( function ( child ) {
-		        if ( child instanceof THREE.Mesh ) {
-		            child.material = new THREE.MeshPhongMaterial( { side: THREE.DoubleSide, color: 0xBEBEBE, transparent: true, opacity: 0.3, shininess: 0.1, specular: 0x000000 } );
-		        }
-		    });
-			OLAP.maleModel = new THREE.Object3D();
-	    	OLAP.maleModel.add(object);
-	    });
+		await this.loadModel(
+								url,
+								(obj) => {
+									OLAP.maleModel = obj;
+								},
+								(xhr) => {},
+								(e) => {
+									console.log('Failed loading male model');
+								},
+								material
+							);
 		url = "https://raw.githubusercontent.com/O-LAP/home/master/olap/files/bianca.obj";
-		model = await $.get(url);
-		objLoader = new THREE.OBJLoader();
-		objLoader.setPath(url);
-	    objLoader.load(model, function (object) {
-		    object.traverse( function ( child ) {
-		        if ( child instanceof THREE.Mesh ) {
-		            child.material = new THREE.MeshPhongMaterial( { side: THREE.DoubleSide, color: 0xBEBEBE, transparent: true, opacity: 0.3, shininess: 0.1, specular: 0x000000 } );
-		        }
-		    });
-			OLAP.femaleModel = new THREE.Object3D();
-	    	OLAP.femaleModel.add(object);
-	    });
+		await this.loadModel(
+								url,
+								(obj) => {
+									OLAP.femaleModel = obj;
+								},
+								(xhr) => {},
+								(e) => {
+									console.log('Failed loading male model');
+								},
+								material
+							);
 	    OLAP.activeHumanGeom = new THREE.Object3D();
     	OLAP.activeHumanGeom.add(OLAP.maleModel);
 	}
@@ -307,7 +321,38 @@ class OLAPFramework {
         saveAs(file);
 	}
 
-	constructor() {
+	async order() {
+        let name = $('#order-name').val();
+        let address = $('#order-address').val();
+        let contact = $('#order-contact').val();
+        let message = $('#order-message').val();
+		let exporter = new THREE.OBJExporter();
+		let exp = new THREE.Object3D();
+		let g = OLAP.geometry.clone();
+		exp.add(g);
+		exp.add(OLAP.sliceManager.getAllSlicesFromSet(g));
+        let model = exporter.parse( exp );
+        let params = this.loadedDesign.inputState;
+        let ordDet = 	{
+							name: name,
+							address: address,
+							contact: contact,
+							message: message,
+							model: model,
+							params: params
+						};
+        $.post(OLAP.dbBaseUrl + '/orders/add', ordDet).then(function(data) {
+	        if (data == 'OK') {
+		        M.toast({html: 'Order submitted. We will get back with more details.'});
+	        }
+	        else {
+	        	M.toast({html: 'Order failed. Please mail us the file at olapdesign@gmail.com.'});
+	        }
+        });
+
+	}
+
+	async init() {
 		this.version = "1.0.0";
 		this.scene = scene;
 		this.inputs = {};
@@ -319,8 +364,13 @@ class OLAPFramework {
 		this.$license = $("#license");
 		this.$short_desc = $("#short-desc");
 		this.$commit_history = $("#commitHistory");
+		// this.dbBaseUrl = `http://127.0.0.1:4000`;
+		this.dbBaseUrl = `https://o-lap-database.herokuapp.com`;
 		$("#download").on('click', function() {
 			OLAP.export();
+		});
+		$("#order-submit-btn").on('click', function() {
+			OLAP.order();
 		});
 		this.loadedDesign = null;
 		this.inputVals = {};
@@ -354,7 +404,7 @@ class OLAPFramework {
 	    });
 	}
 
-	openDesign(designObj, gitAuthor, gitRepo) {
+	async openDesign(designObj, gitAuthor, gitRepo) {
 
 		this.checkMessage();
 
@@ -378,11 +428,6 @@ class OLAPFramework {
 			console.log("Aborting design open.");
 			return;
 		}
-		if(!hasMethod(designObj, "onParamChange")) {
-			console.log("Design file needs to implement 'onParamChange' method to recieve updated parameter values.");
-			console.log("Aborting design open.");
-			return;
-		}
 		if(!hasMethod(designObj, "updateGeom")) {
 			console.log("Design file needs to implement 'updateGeom' method to trigger design regeneration.");
 			console.log("Aborting design open.");
@@ -392,9 +437,9 @@ class OLAPFramework {
 		this.clearUI();
 		this.clearGeometry();
 		this.loadedDesign = designObj;
-		this.loadedDesign.init();
-		this.loadUI(gitAuthor, gitRepo);
-		this.updateGeom();
+		await this.loadedDesign.init();
+		await this.loadUI(gitAuthor, gitRepo);
+		await this.updateGeom();
 	}
 
 	clearUI() {
@@ -427,7 +472,6 @@ class OLAPFramework {
 			return;
 		}
 		let commHistURL = `https://api.github.com/repos/${gitAuthor}/${gitRepo}/commits`;
-		commHistURL = "https://api.github.com/repos/amitlzkpa/o-lap_plato/commits";
 		let h = await jQuery.get(commHistURL);
 		h.forEach((c) => {
 			this.$commit_history.append(`
@@ -441,7 +485,7 @@ class OLAPFramework {
 		});
 	}
 
-	updateGeom() {
+	async updateGeom() {
 		this.scene.remove(this.geometry);
 		this.scene.remove(this.slices);
 		this.geometry = new THREE.Object3D();
@@ -452,9 +496,8 @@ class OLAPFramework {
 		    inpStateCopy[key] = value;
 		}
 		this.loadedDesign.inputState = inpStateCopy;
-		this.loadedDesign.onParamChange(inpStateCopy);
 		this.sliceManager = new SliceManager();
-		this.loadedDesign.updateGeom(this.geometry, this.sliceManager)
+		await this.loadedDesign.updateGeom(this.geometry, inpStateCopy, this.sliceManager);
 		this.scene.add(this.geometry);
 		if(this.showSec) {
 			this.slices = this.sliceManager.getAllSlicesFromSet(this.geometry);
@@ -476,9 +519,9 @@ class OLAPFramework {
 				var p = this.$ui.append(html);
 				$('select').formSelect();										// materilize initialization
 				var fw = this;													// cache ref to framework for passing it to the event listening registration
-				p.find('#' + id).on('change',function(e){
+				p.find('#' + id).on('change', async function(e){
 					fw.inputVals[id] = $('#'+id + ' :selected').text();			// update curr state
-					fw.updateGeom();											// trigger an update
+					await fw.updateGeom();											// trigger an update
 				});
 				break;
 			case "slider":
@@ -494,9 +537,9 @@ class OLAPFramework {
 							`;
 				var q = this.$ui.append(html);
 				var fw = this;													// cache ref to framework for passing it to the event listening registration
-				q.find('#' + id).on('input',function(e){
+				q.find('#' + id).on('input', async function(e){
 					fw.inputVals[id] = $(this).val();							// update curr state
-					fw.updateGeom();											// trigger an update
+					await fw.updateGeom();										// trigger an update
 				});
 				break;
 			case "bool":
@@ -512,16 +555,68 @@ class OLAPFramework {
 						    `;
 				var r = this.$ui.append(html);
 				var fw = this;													// cache ref to framework for passing it to the event listening registration
-				r.find("#" + id).on('change',function(e){
+				r.find("#" + id).on('change', async function(e){
 					fw.inputVals[id] = $(this).is(":checked");					// update curr state
-					fw.updateGeom();											// trigger an update
+					await fw.updateGeom();										// trigger an update
+				});
+				break;
+			case "text":
+				tipTxt = (typeof inpConfig.tip !== 'undefined') ? `<span class="grey-text">${inpConfig.tip}</span></br>` : "";
+				var html = `
+						    <p>
+						      <label>
+						        <input type='text' id="${id}"/>
+						        <span>${inpConfig.label}</span>
+						      </label></br>
+							  ${tipTxt}
+						    </p>
+						    `;
+				var r = this.$ui.append(html);
+				var fw = this;													// cache ref to framework for passing it to the event listening registration
+				r.find("#" + id).on('input', async function(e){
+					fw.inputVals[id] = $(this).val();							// update curr state
+					await fw.updateGeom();										// trigger an update
 				});
 				break;
 		}
 	}
 
+
+	// load .obj models 
+	// url — A string containing the path/URL of the .obj file.
+	// onLoad — (optional) A function to be called after the loading is successfully completed. The function receives the loaded Object3D as an argument.
+	// onProgress — (optional) A function to be called while the loading is in progress. The function receives a XMLHttpRequest instance, which contains total and loaded bytes.
+	// onError — (optional) A function to be called if an error occurs during loading. The function receives error as an argument.
+	// material - (optional) Material to be applied to the model
+	// ref: https://threejs.org/docs/#examples/loaders/OBJLoader
+	async loadModel(url, onLoad, onProg, onErr, material) {
+		// let model = await $.get(url);
+		let objLoader = new THREE.OBJLoader();
+		// objLoader.setPath(url);
+	    objLoader.load(url, (object) => {
+						    	if(material) {
+								    object.traverse( function ( child ) {
+								        if ( child instanceof THREE.Mesh ) {
+								            child.material = material;
+								        }
+								    });
+						    	}
+								onLoad(object);
+						    },
+						    onProg, onErr
+						);
+	}
+
 }
 
 
-var OLAP = new OLAPFramework();
+
+async function go() {
+	OLAP = new OLAPFramework();
+	await OLAP.init();
+}
+
+
+
+go();
 
